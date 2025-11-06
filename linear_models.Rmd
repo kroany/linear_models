@@ -48,8 +48,236 @@ fit = lm(price ~ stars + borough, data = nyc_airbnb)
 ```
 
 Look at `lm` stuff
+Don't do this. TOo messy
+```{r eval = FALSE}
+summary(fit)
+names(summary(fit))
+summary(fit)[["coefficients"]]
+summary(fit)[["df"]]
+
+fitted.values(fit)
+resid(fit)
+```
+
+Look at cleaner lm stuff
 
 ```{r}
-summary(fit)
+fit |> 
+  broom::tidy() |> 
+  mutate(
+    term = str_replace(term, "borough", "Borough: ") # edit term name
+  ) |> 
+  select(term, estimate, p.value) |> 
+  knitr::kable(digits = 3)
+
+fit |> 
+  broom::glance()
 ```
+
+## Diagnostics
+
+Look at residuals
+
+```{r}
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # add column with residuals 
+  modelr::add_predictions(fit) |> 
+  filter(resid < 100) |> 
+  ggplot(aes(x = resid)) +
+  geom_histogram()
+
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # add column with residuals 
+  modelr::add_predictions(fit) |> 
+  filter(resid < 1000) |> 
+  ggplot(aes(x = borough, y = resid)) +
+  geom_violin()
+
+nyc_airbnb |> 
+  modelr::add_residuals(fit) |> # add column with residuals 
+  modelr::add_predictions(fit) |> 
+  filter(resid < 1000) |> 
+  ggplot(aes(x = stars, y = resid)) +
+  geom_point()
+
+```
+
+## Hypothesis testing 
+
+```{r}
+fit |> 
+  broom::tidy() # make results tidy
+```
+
+What about a categorical variable?
+
+```{r}
+fit_alt = lm(price ~ stars + borough + room_type, data = nyc_airbnb)
+fit_null = lm(price ~ stars + borough, data = nyc_airbnb)
+
+fit_alt |> 
+  broom::tidy()
+
+fit_null |> 
+  broom::tidy()
+
+anova(fit_null, fit_alt) |> 
+  broom::tidy()
+
+```
+
+## Interactions vs nested data
+
+```{r}
+fit_interactions = 
+  lm(price ~ stars * borough + room_type * borough, data = nyc_airbnb)
+
+fit_interactions |> 
+  broom::tidy() |> 
+  knitr::kable(digits = 3)
+
+```
+
+Let's just look at Brooklyn first
+
+```{r}
+nyc_airbnb |> 
+  filter(borough == "Brooklyn") |> 
+  lm(price ~ stars + room_type, data = _) |> # _ placeholder for dataset, since data is in the second argument
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Manhattan") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Bronx") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+
+nyc_airbnb |> 
+  filter(borough == "Queens") |> 
+  lm(price ~ stars + room_type, data = _) |> 
+  broom::tidy()
+```
+
+Write a short function
+
+```{r}
+lm_airbnb = function(df) {
+  
+  lm(price ~ stars + room_type, data = df)
+  
+}
+
+nyc_airbnb |> 
+  filter(borough == "Queens") |> 
+  lm_airbnb() |> 
+  broom::tidy()
+```
+
+Create a list of dataframes, and iterate to fit the model each time
+
+```{r}
+nested_lm_results = 
+  nyc_airbnb |> 
+    nest(data = -borough) |> 
+    mutate(
+      fits = map(data, lm_airbnb),
+      results = map(fits, broom::tidy)
+    ) |> 
+    select(borough, results) |> 
+    unnest(results)
+```
+
+Do some untidying
+
+```{r}
+nested_lm_results |> 
+  select(borough, term, estimate) |> 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  )
+```
+
+Use an *anonymous function* instead of `lm_airbnb`
+Don't need to create a separate function
+
+```{r}
+nested_lm_results = 
+  nyc_airbnb |> 
+    nest(data = -borough) |> 
+    mutate(
+      fits = map(data, \(df) lm(price ~ stars + room_type, data = df)), # \(df): function of df
+      results = map(fits, broom::tidy)
+    ) |> 
+    select(borough, results) |> 
+    unnest(results)
+
+nested_lm_results |> 
+  select(borough, term, estimate) |> 
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  )
+```
+
+Let's do an eveen more extreem example!!
+
+```{r}
+manhattan_analysis = 
+  nyc_airbnb |> 
+  filter(
+    borough == "Manhattan"
+  ) |> 
+  nest(data = -neighbourhood) |> 
+  mutate(
+    fits = map(data, \(df) lm(price ~ stars + room_type, data = df)),
+    results = map(fits, broom::tidy)
+  ) |> 
+  select(neighbourhood, results) |> 
+  unnest(results)
+```
+
+Make a plot
+
+```{r}
+manhattan_analysis |> 
+  filter(term == "stars") |> 
+  mutate(
+    neighbourhood = fct_reorder(neighbourhood, estimate)
+  ) |> 
+  ggplot(aes(x = neighbourhood, y = estimate)) + 
+  geom_point() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
